@@ -1,0 +1,11 @@
+# File e cartelle che Git NON deve salvare nel repository.
+
+# Ambiente virtuale: è specifico del tuo computer
+.venv
+
+# Chiave API e altri segreti: non vanno mai caricati online
+.env
+
+# File temporanei creati da Python
+__pycache__/
+_pycache_
