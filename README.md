@@ -50,6 +50,10 @@ copy .env.example .env
 
 ### 4. Avvia l'app
 
+Puoi fare doppio clic su `avvia_app.bat` nella cartella del progetto: apre l'app senza usare PowerShell.
+
+In alternativa, da PowerShell:
+
 ```powershell
 .\.venv\Scripts\python.exe -m streamlit run app.py
 ```
