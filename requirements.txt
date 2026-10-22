@@ -3,9 +3,12 @@
 # python-dotenv: legge il file .env e mette le variabili (come la chiave API) nell'ambiente
 # streamlit: crea la pagina web con la chat
 # pypdf: legge il testo dai file PDF
+# numpy: calcola la similarità tra domanda e frammenti del documento
 google-genai
 python-dotenv
 streamlit
 pypdf
+numpy
+
 
 
