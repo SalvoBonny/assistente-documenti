@@ -9,3 +9,4 @@
 # File temporanei creati da Python
 __pycache__/
 _pycache_
+cache_embeddings/

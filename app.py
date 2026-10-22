@@ -1,6 +1,7 @@
 # Pagina web con chat: l'utente carica un documento e fa domande a Gemini.
 
 import os
+import time
 import numpy as np
 import streamlit as st
 from dotenv import load_dotenv
@@ -24,11 +25,28 @@ BLOCCO_EMBEDDING = 16
 LUNGHEZZA_FRAMMENTO = 1000
 SOVRAPPOSIZIONE = 200
 
+# Gestione del limite gratuito (errore 429): quanto aspettare e quante volte riprovare
+PAUSA_SECONDI = 60
+MAX_TENTATIVI = 3
+
+# Sopra questo numero di frammenti la preparazione sarà lenta sul piano gratuito
+SOGLIA_FRAMMENTI_LENTI = 400
+
 # Istruzione da dare a Gemini quando c'è un documento
 ISTRUZIONE_DOCUMENTO = (
     "Rispondi usando solo le informazioni del documento. "
     "Se la risposta non c'è, dillo chiaramente."
 )
+
+
+class LimiteSuperato(Exception):
+    """Errore nostro: il limite gratuito è finito anche dopo aver riprovato."""
+
+
+def e_errore_limite(errore):
+    """Dice se l'errore è il 429 (troppe richieste) di Google."""
+    testo = str(errore)
+    return "429" in testo or "RESOURCE_EXHAUSTED" in testo
 
 
 def estrai_testo(file):
@@ -74,8 +92,12 @@ def _vettori_da_risposta(risposta):
     return [list(e.values) for e in (risposta.embeddings or [])]
 
 
-def calcola_embeddings(client, testi, per_documento):
-    """Calcola gli embedding a blocchi con embed_content (metodo ufficiale google-genai)."""
+def calcola_embeddings(client, testi, per_documento, avanzamento=None, segnaposto=None):
+    """Calcola gli embedding a blocchi. Se Google dice 429 (troppe richieste), aspetta e riprova.
+
+    avanzamento: funzione opzionale chiamata dopo ogni blocco con (fatti, totale)
+    segnaposto: spazio della pagina (st.empty) dove mostrare il messaggio di attesa
+    """
     contenuti = []
     for testo in testi:
         if per_documento:
@@ -89,13 +111,44 @@ def calcola_embeddings(client, testi, per_documento):
         )
 
     vettori = []
-    for i in range(0, len(contenuti), BLOCCO_EMBEDDING):
+    totale = len(contenuti)
+    for i in range(0, totale, BLOCCO_EMBEDDING):
         blocco = contenuti[i : i + BLOCCO_EMBEDDING]
-        risposta = client.models.embed_content(
-            model=MODELLO_EMBEDDING,
-            contents=blocco,
-        )
+
+        # Prova a calcolare questo blocco, fino a MAX_TENTATIVI volte
+        for tentativo in range(1, MAX_TENTATIVI + 1):
+            try:
+                risposta = client.models.embed_content(
+                    model=MODELLO_EMBEDDING,
+                    contents=blocco,
+                )
+                break  # Riuscito: esce dai tentativi
+            except Exception as errore:
+                # Se non è il limite gratuito, è un altro problema: lo segnala subito
+                if not e_errore_limite(errore):
+                    raise
+                # Ultimo tentativo fallito: ci arrendiamo con un messaggio chiaro
+                if tentativo == MAX_TENTATIVI:
+                    raise LimiteSuperato(
+                        "Il limite gratuito di Google è ancora raggiunto dopo "
+                        f"{MAX_TENTATIVI} tentativi. Riprova tra qualche minuto."
+                    )
+                # Altrimenti avvisa l'utente e aspetta prima di riprovare
+                if segnaposto is not None:
+                    segnaposto.info(
+                        f"Limite gratuito raggiunto, attendo {PAUSA_SECONDI} secondi... "
+                        f"(tentativo {tentativo} di {MAX_TENTATIVI})"
+                    )
+                time.sleep(PAUSA_SECONDI)
+                if segnaposto is not None:
+                    segnaposto.empty()
+
         vettori.extend(_vettori_da_risposta(risposta))
+
+        # Aggiorna la barra di avanzamento
+        if avanzamento is not None:
+            avanzamento(min(i + BLOCCO_EMBEDDING, totale), totale)
+
     return vettori
 
 
@@ -157,6 +210,7 @@ with st.sidebar:
     )
 
     # Se l'utente ha scelto un file nuovo, estrai il testo e prepara gli embedding
+    # (si fa una sola volta per documento: poi i dati restano in st.session_state)
     if file is not None and file.file_id != st.session_state.id_file:
         testo = estrai_testo(file)
         st.session_state.id_file = file.file_id
@@ -171,13 +225,48 @@ with st.sidebar:
                 "Se è un PDF scansionato (solo immagini), prova un PDF con testo selezionabile oppure un file TXT."
             )
         else:
+            frammenti = dividi_in_frammenti(testo)
+
+            # Avviso se il documento è lungo: sul piano gratuito sarà lento
+            if len(frammenti) > SOGLIA_FRAMMENTI_LENTI:
+                st.warning(
+                    f"Documento lungo ({len(frammenti)} frammenti). Sul piano gratuito "
+                    "la preparazione sarà lenta: ci possono volere diversi minuti. "
+                    "Non chiudere la pagina."
+                )
+
+            # Barra di avanzamento e spazio per il messaggio di attesa
+            barra = st.progress(0, text="Preparo il documento...")
+            avviso_attesa = st.empty()
+
+            def aggiorna_barra(fatti, totale):
+                """Aggiorna la barra con quanti frammenti sono stati elaborati."""
+                barra.progress(
+                    fatti / totale,
+                    text=f"Preparo il documento... {fatti} di {totale} frammenti",
+                )
+
             try:
                 with st.spinner("Preparo il documento..."):
-                    frammenti = dividi_in_frammenti(testo)
-                    embeddings = calcola_embeddings(client, frammenti, per_documento=True)
+                    embeddings = calcola_embeddings(
+                        client,
+                        frammenti,
+                        per_documento=True,
+                        avanzamento=aggiorna_barra,
+                        segnaposto=avviso_attesa,
+                    )
                 st.session_state.frammenti = frammenti
                 st.session_state.embeddings = embeddings
+                # A lavoro finito toglie barra e messaggi
+                barra.empty()
+                avviso_attesa.empty()
+            except LimiteSuperato as errore:
+                barra.empty()
+                avviso_attesa.empty()
+                st.error(str(errore))
             except Exception as errore:
+                barra.empty()
+                avviso_attesa.empty()
                 st.error(
                     "Non sono riuscito a preparare il documento per la ricerca. "
                     f"Dettaglio: {errore}"
@@ -222,11 +311,16 @@ if domanda:
     # Chiede a Gemini e gestisce eventuali errori
     with st.chat_message("assistant"):
         try:
+            # Spazio per un eventuale messaggio di attesa (limite gratuito)
+            avviso_domanda = st.empty()
             with st.spinner("Sto pensando..."):
                 if st.session_state.frammenti and st.session_state.embeddings:
                     # Cerca i 4 frammenti più simili alla domanda
                     embedding_domanda = calcola_embeddings(
-                        client, [domanda], per_documento=False
+                        client,
+                        [domanda],
+                        per_documento=False,
+                        segnaposto=avviso_domanda,
                     )[0]
                     fonti = frammenti_piu_simili(
                         embedding_domanda,
