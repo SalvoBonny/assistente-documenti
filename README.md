@@ -1,5 +1,9 @@
 # Assistente Documenti
 
+**Prova l'app online:** https://assistente-documenti-unjuibexr7dbochwebghrd.streamlit.app/
+
+Per usarla serve una chiave Gemini gratuita (si crea su aistudio.google.com) da incollare nella barra laterale. Non caricare documenti riservati.
+
 Un programma semplice per fare domande su un documento.
 
 Carichi un file PDF o TXT e scrivi in chat. Il programma legge il testo del documento e chiede una risposta a Gemini, usando solo le informazioni contenute nel file.
