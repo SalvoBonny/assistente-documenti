@@ -2,66 +2,72 @@
 
 **Prova l'app online:** https://assistente-documenti-unjuibexr7dbochwebghrd.streamlit.app/
 
-Per usarla serve una chiave Gemini gratuita (si crea su aistudio.google.com) da incollare nella barra laterale. Non caricare documenti riservati.
+Per usarla serve una chiave Gemini gratuita (si crea su aistudio.google.com) da incollare nella barra laterale. Non viene salvata. Non caricare documenti riservati: sul piano gratuito Google può riutilizzare i contenuti inviati.
 
-Un programma semplice per fare domande su un documento.
+## Cosa fa
 
-Carichi un file PDF o TXT e scrivi in chat. Il programma legge il testo del documento e chiede una risposta a Gemini, usando solo le informazioni contenute nel file.
+Carichi un file PDF o TXT e fai domande in chat. L'app risponde usando solo le informazioni del documento e, se la risposta non c'è, lo dice. Sotto ogni risposta si apre la sezione **Fonti**, che mostra i frammenti di testo usati.
+
+## Come funziona (RAG)
+
+1. Il testo viene diviso in frammenti di circa 1000 caratteri, con 200 di sovrapposizione.
+2. Ogni frammento viene trasformato in un embedding (una serie di numeri che rappresenta il significato) con il modello `gemini-embedding-2`.
+3. Alla domanda, l'app calcola l'embedding della domanda e trova i 4 frammenti più simili con la similarità coseno (numpy).
+4. A Gemini vengono inviati solo quei 4 frammenti, con l'istruzione di rispondere solo in base al documento.
+
+## Gestione dei limiti del piano gratuito
+
+- Se Google risponde "troppe richieste" (errore 429), l'app aspetta e riprova da sola, fino a 5 tentativi.
+- Se la connessione cade, riprova dopo qualche secondo.
+- Una barra di avanzamento mostra quanti frammenti sono stati elaborati.
+- In locale i progressi vengono salvati su disco (cartella `cache_embeddings`), così un documento lungo si elabora una sola volta e può ripartire da dove si era fermato.
 
 ## Tecnologie usate
 
-- **Python** — linguaggio del programma
-- **Streamlit** — pagina web con la chat
-- **Gemini API** — intelligenza artificiale di Google che risponde alle domande
-- **pypdf** — legge il testo dai file PDF
+- Python
+- Streamlit: pagina web con la chat
+- Gemini API (google-genai): risposte ed embedding
+- numpy: ricerca dei frammenti più simili
+- pypdf: lettura del testo dai PDF
 
 ## Come ottenere una chiave API gratuita
 
-1. Apri [Google AI Studio](https://aistudio.google.com).
-2. Accedi con un account Google.
-3. Crea una chiave API (API key).
-4. Copiala e tienila per te: è come una password.
+1. Apri Google AI Studio (aistudio.google.com) e accedi con il tuo account Google.
+2. Vai su "Get API key" e crea una chiave.
+3. Non condividerla con nessuno e non scriverla nel codice.
 
-## Come installare e avviare su Windows
+Se ti viene chiesta una carta o un piano a pagamento, non procedere. I limiti del piano gratuito possono cambiare: si controllano nella console di AI Studio.
 
-Apri **PowerShell** e vai nella cartella del progetto. Esempio:
+## Installazione su Windows
 
-```powershell
-cd C:\assistente-documenti
+1. Installa Python da python.org (spunta "Add python.exe to PATH").
+2. Scarica il progetto ed entra nella cartella. In PowerShell:
+
 ```
-
-### 1. Crea l'ambiente virtuale
-
-```powershell
 python -m venv .venv
-```
-
-### 2. Installa i pacchetti
-
-```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-### 3. Crea il file della chiave
-
-Copia `.env.example` e rinominalo in `.env`. Poi apri `.env` e metti la tua chiave al posto di `inserisci_qui_la_tua_chiave`.
-
-In PowerShell:
-
-```powershell
 copy .env.example .env
 ```
 
-### 4. Avvia l'app
+3. Apri il file `.env` e scrivi la tua chiave dopo `GEMINI_API_KEY=` (senza spazi né virgolette).
 
-Puoi fare doppio clic su `avvia_app.bat` nella cartella del progetto: apre l'app senza usare PowerShell.
+## Avvio
 
-In alternativa, da PowerShell:
+Doppio clic su `avvia_app.bat`, oppure in PowerShell:
 
-```powershell
+```
 .\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-Si apre nel browser, di solito all'indirizzo `http://localhost:8501`.
+Si apre il browser su http://localhost:8501. La finestra nera deve restare aperta finché usi l'app.
 
-Nella barra laterale carica un PDF o un TXT, poi scrivi una domanda nella chat. Il pulsante **Nuova conversazione** cancella i messaggi ma lascia il documento caricato.
+## Limiti noti
+
+- Con documenti molto lunghi (libri interi) la preparazione è lenta sul piano gratuito.
+- I PDF scansionati (solo immagini) non vengono letti: serve un PDF con testo selezionabile.
+- I frammenti sono tagliati a lunghezza fissa, quindi a volte si interrompono a metà parola.
+
+## Idee per migliorarlo
+
+- Taglio dei frammenti a fine frase
+- Più documenti insieme, con la fonte di ciascun frammento
